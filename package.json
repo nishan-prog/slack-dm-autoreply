@@ -1,0 +1,13 @@
+{
+  "name": "slack-dm-autoreply",
+  "version": "1.0.0",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "@slack/bolt": "^4.16.0",
+    "dotenv": "^16.0.0",
+    "fs-extra": "^11.1.1"
+  }
+}
