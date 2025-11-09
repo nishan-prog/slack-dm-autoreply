@@ -19,29 +19,46 @@ const app = new App({
 const userSettings = {};
 
 // Slash command: /autoreply
-app.command("/autoreply", async ({ command, ack, say }) => {
+app.command("/autoreply", async ({ command, ack, respond }) => {
   await ack();
   const userId = command.user_id;
   const args = command.text.trim();
 
-  if (args.toLowerCase() === "on") {
-    userSettings[userId] = { enabled: true, message: userSettings[userId]?.message || "Hi! I’ll get back to you soon." };
-    await say(`✅ Auto-reply turned ON for <@${userId}>.`);
-  } else if (args.toLowerCase() === "off") {
-    userSettings[userId] = { enabled: false, message: userSettings[userId]?.message || "" };
-    await say(`🛑 Auto-reply turned OFF for <@${userId}>.`);
-  } else if (args.toLowerCase().startsWith("set ")) {
-    const msg = args.slice(4).trim();
-    if (!msg) return say("❗ Please include a message after `set`.");
-    userSettings[userId] = { enabled: userSettings[userId]?.enabled || false, message: msg };
-    await say(`✍️ Auto-reply message updated for <@${userId}>.`);
-  } else {
-    await say(`Usage:
+  try {
+    console.log(`Received /autoreply command from ${command.user_name}: "${args}"`);
+
+    if (args.toLowerCase() === "on") {
+      userSettings[userId] = {
+        enabled: true,
+        message: userSettings[userId]?.message || "Hi! I’ll get back to you soon.",
+      };
+      await respond(`✅ Auto-reply turned ON for <@${userId}>.`);
+    } else if (args.toLowerCase() === "off") {
+      userSettings[userId] = {
+        enabled: false,
+        message: userSettings[userId]?.message || "",
+      };
+      await respond(`🛑 Auto-reply turned OFF for <@${userId}>.`);
+    } else if (args.toLowerCase().startsWith("set ")) {
+      const msg = args.slice(4).trim();
+      if (!msg) return respond("❗ Please include a message after `set`.");
+      userSettings[userId] = {
+        enabled: userSettings[userId]?.enabled || false,
+        message: msg,
+      };
+      await respond(`✍️ Auto-reply message updated for <@${userId}>.`);
+    } else {
+      await respond(`Usage:
 - /autoreply on → enable auto-reply
 - /autoreply off → disable auto-reply
 - /autoreply set [message] → set custom reply message`);
+    }
+  } catch (err) {
+    console.error("Error handling /autoreply:", err);
+    await respond("⚠️ Something went wrong while processing your command.");
   }
 });
+
 
 // Listen for DMs and auto-reply
 app.event("message", async ({ event, client }) => {
