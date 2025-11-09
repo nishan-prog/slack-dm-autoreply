@@ -1,26 +1,28 @@
 // index.js
-const express = require("express");
-const { App, ExpressReceiver } = require("@slack/bolt");
-require("dotenv").config();
+import pkg from "@slack/bolt";
+const { App, ExpressReceiver } = pkg;
+import dotenv from "dotenv";
+dotenv.config();
 
-// Create custom receiver to handle Slack events
+// Create custom Slack receiver
 const receiver = new ExpressReceiver({
   signingSecret: process.env.SLACK_SIGNING_SECRET,
-  endpoints: "/slack/events",
 });
 
-// Create Bolt app
+// Initialize Slack app
 const app = new App({
   token: process.env.SLACK_BOT_TOKEN,
   receiver,
 });
 
-// Store user-specific autoreply states and messages
+// Store per-user auto-reply settings
 const userSettings = {};
 
 // Slash command: /autoreply
 app.command("/autoreply", async ({ command, ack, respond }) => {
+  // ✅ Acknowledge immediately to prevent Slack timeout
   await ack();
+
   const userId = command.user_id;
   const args = command.text.trim();
 
@@ -59,28 +61,27 @@ app.command("/autoreply", async ({ command, ack, respond }) => {
   }
 });
 
-
-// Listen for DMs and auto-reply
+// Listen for direct messages
 app.event("message", async ({ event, client }) => {
-  if (!event.user || event.subtype === "bot_message") return;
-  const userId = event.user;
-  const settings = userSettings[userId];
+  try {
+    if (!event.user || event.subtype === "bot_message") return;
 
-  if (settings?.enabled) {
-    try {
+    const settings = userSettings[event.user];
+
+    if (settings?.enabled) {
       await client.chat.postMessage({
         channel: event.channel,
         text: settings.message,
       });
-    } catch (err) {
-      console.error("Failed to send auto-reply:", err);
     }
+  } catch (err) {
+    console.error("Error sending auto-reply:", err);
   }
 });
 
-// Start Express server
-const expressApp = express();
-expressApp.use("/slack/events", receiver.router);
-
-const PORT = process.env.PORT || 3000;
-expressApp.listen(PORT, () => console.log(`🚀 AutoReply bot running on port ${PORT}`));
+// Start Express + Bolt server
+const port = process.env.PORT || 3000;
+(async () => {
+  await app.start(port);
+  console.log(`🚀 AutoReply bot running on port ${port}`);
+})();
