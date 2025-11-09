@@ -1,85 +1,84 @@
 // index.js
 import pkg from "@slack/bolt";
-const { App, ExpressReceiver } = pkg;
+const { App } = pkg;
 import dotenv from "dotenv";
 dotenv.config();
 
-// Create custom Slack receiver
-const receiver = new ExpressReceiver({
-  signingSecret: process.env.SLACK_SIGNING_SECRET,
-});
+import fs from "fs";
+const stateFile = "./state.json";
+
+// Load or initialize state
+let state = { users: {} };
+try {
+  state = JSON.parse(fs.readFileSync(stateFile));
+} catch {
+  console.log("No state.json found, starting fresh.");
+}
 
 // Initialize Slack app
 const app = new App({
   token: process.env.SLACK_BOT_TOKEN,
-  receiver,
+  signingSecret: process.env.SLACK_SIGNING_SECRET,
 });
 
-// Store per-user auto-reply settings
-const userSettings = {};
-
-// Slash command: /autoreply
+// Slash command to toggle auto-reply on/off and set custom message
 app.command("/autoreply", async ({ command, ack, respond }) => {
-  // ✅ Acknowledge immediately to prevent Slack timeout
   await ack();
-
   const userId = command.user_id;
-  const args = command.text.trim();
 
-  try {
-    console.log(`Received /autoreply command from ${command.user_name}: "${args}"`);
+  if (!state.users[userId]) {
+    state.users[userId] = { enabled: false, message: "Hi! Thank you for your message." };
+  }
 
-    if (args.toLowerCase() === "on") {
-      userSettings[userId] = {
-        enabled: true,
-        message: userSettings[userId]?.message || "Hi! I’ll get back to you soon.",
-      };
-      await respond(`✅ Auto-reply turned ON for <@${userId}>.`);
-    } else if (args.toLowerCase() === "off") {
-      userSettings[userId] = {
-        enabled: false,
-        message: userSettings[userId]?.message || "",
-      };
-      await respond(`🛑 Auto-reply turned OFF for <@${userId}>.`);
-    } else if (args.toLowerCase().startsWith("set ")) {
-      const msg = args.slice(4).trim();
-      if (!msg) return respond("❗ Please include a message after `set`.");
-      userSettings[userId] = {
-        enabled: userSettings[userId]?.enabled || false,
-        message: msg,
-      };
-      await respond(`✍️ Auto-reply message updated for <@${userId}>.`);
+  const args = command.text.trim().split(" ");
+  const subCommand = args[0]?.toLowerCase();
+
+  if (subCommand === "on") {
+    state.users[userId].enabled = true;
+    fs.writeFileSync(stateFile, JSON.stringify(state, null, 2));
+    await respond(`✅ Auto-reply turned ON. Current message:\n"${state.users[userId].message}"`);
+  } else if (subCommand === "off") {
+    state.users[userId].enabled = false;
+    fs.writeFileSync(stateFile, JSON.stringify(state, null, 2));
+    await respond("❌ Auto-reply turned OFF.");
+  } else if (subCommand === "set") {
+    const customMessage = args.slice(1).join(" ");
+    if (customMessage) {
+      state.users[userId].message = customMessage;
+      fs.writeFileSync(stateFile, JSON.stringify(state, null, 2));
+      await respond(`✏️ Auto-reply message updated to:\n"${customMessage}"`);
     } else {
-      await respond(`Usage:
-- /autoreply on → enable auto-reply
-- /autoreply off → disable auto-reply
-- /autoreply set [message] → set custom reply message`);
+      await respond("⚠️ Please provide a message after `set`.");
     }
-  } catch (err) {
-    console.error("Error handling /autoreply:", err);
-    await respond("⚠️ Something went wrong while processing your command.");
+  } else {
+    await respond("Usage: `/autoreply on|off|set <message>`");
   }
 });
 
-// Listen for direct messages
-app.event("message", async ({ event, client }) => {
+// Listen for messages forwarded by the forwarder app
+app.message(/^\[(U[A-Z0-9]+)\]\s(.+)$/, async ({ message, context, client }) => {
   try {
-    if (!event.user || event.subtype === "bot_message") return;
+    const matches = message.text.match(/^\[(U[A-Z0-9]+)\]\s(.+)$/);
+    if (!matches) return;
 
-    const settings = userSettings[event.user];
+    const targetUser = matches[1];
+    const originalText = matches[2];
 
-    if (settings?.enabled) {
+    if (state.users[targetUser]?.enabled) {
+      const replyText = state.users[targetUser].message;
+
+      // Send auto-reply to sender
       await client.chat.postMessage({
-        channel: event.channel,
-        text: settings.message,
+        channel: message.user,
+        text: replyText,
       });
     }
   } catch (err) {
-    console.error("Error sending auto-reply:", err);
+    console.error("Auto-reply error:", err);
   }
 });
 
-// Start Express + Bolt server
+// Start the bot
 const port = process.env.PORT || 3000;
 (async () => {
   await app.start(port);
